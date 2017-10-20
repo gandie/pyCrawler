@@ -18,7 +18,6 @@ class Worker(threading.Thread):
         self.mailQue = mailQue
         self.host = host
         self.release = release
-        #self.starturl_stripped = self.starturl.replace('www.', '')
         self.regex = regex
         self.parser = etree.HTMLParser()
 
@@ -110,8 +109,8 @@ def crawl(starturl, depth=5, numworkers=25, release=False):
 
     inputQue.put(starturl, False)
 
-    linksdone = []
-    mail_adresses = []
+    linksdone = set()
+    mail_adresses = set()
 
     host = urlparse.urlparse(starturl).netloc
 
@@ -145,13 +144,12 @@ def crawl(starturl, depth=5, numworkers=25, release=False):
         while not resultQue.empty():
             new_url = resultQue.get(False)
             if new_url not in linksdone:
+                linksdone.add(new_url)
                 inputQue.put(new_url, False)
-                linksdone.append(new_url)
 
         while not mailQue.empty():
             new_mail = mailQue.get(False)
-            if new_mail not in mail_adresses:
-                mail_adresses.append(new_mail)
+            mail_adresses.add(new_mail)
 
     print '########################'
     print 'From starturl %s found following sites:' % starturl
