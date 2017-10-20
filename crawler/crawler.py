@@ -10,18 +10,23 @@ from StringIO import StringIO
 
 class Worker(threading.Thread):
 
-    def __init__(self, inputQue, resultQue, mailQue, host, regex, **kwargs):
+    def __init__(self, inputQue, resultQue, mailQue, host, regex, release,
+                 **kwargs):
         super(Worker, self).__init__(**kwargs)
         self.inputQue = inputQue
         self.resultQue = resultQue
         self.mailQue = mailQue
         self.host = host
+        self.release = release
         #self.starturl_stripped = self.starturl.replace('www.', '')
         self.regex = regex
         self.parser = etree.HTMLParser()
 
         self.bad_endings = [
             'pdf', 'jpg', 'mp4'
+        ]
+        self.bad_words = [
+            'facebook', 'twitter', 'youtube', 'microsoft'
         ]
 
     def extract_host(self, url):
@@ -40,7 +45,12 @@ class Worker(threading.Thread):
             href = element.get('href')
             if not href:
                 continue
-            if href.split('.')[-1] not in self.bad_endings:
+            if href.split('.')[-1] in self.bad_endings:
+                continue
+            for bad_word in self.bad_words:
+                if bad_word in href:
+                    break
+            else:
                 yield href
 
     def run(self):
@@ -55,13 +65,16 @@ class Worker(threading.Thread):
             url = self.inputQue.get(False)
             print 'My url is: %s' % url
             try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows; U; Windows NT 6.1; rv:2.2) Gecko/20110201',
+                }
                 result = requests.get(
                     url,
                     allow_redirects=True,
-                    timeout=5.0
+                    timeout=5.0,
+                    headers=headers
                 )
                 content = result.content
-                #soup = BeautifulSoup(content)
             except Exception, e:
                 print str(e)
                 continue
@@ -84,12 +97,12 @@ class Worker(threading.Thread):
                     # link is absoulte
                     if 'www' not in host:
                         host = 'www.' + host
-                    if host != self.host:
+                    if not self.release and host != self.host:
                         continue
                     self.resultQue.put(link_raw)
 
 
-def crawl(starturl):
+def crawl(starturl, depth=5, numworkers=25, release=False):
 
     inputQue = Queue.Queue()
     resultQue = Queue.Queue()
@@ -97,15 +110,14 @@ def crawl(starturl):
 
     inputQue.put(starturl, False)
 
-    depth = 5
-    numworkers = 25
     linksdone = []
     mail_adresses = []
 
     host = urlparse.urlparse(starturl).netloc
 
-    reobj = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,6}\b", re.IGNORECASE)
-    # reobj = re.compile(ur'[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+', re.MULTILINE | re.IGNORECASE)
+    reobj = re.compile(
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,6}\b", re.IGNORECASE
+    )
     for iteration in xrange(depth):
 
         threadlist = []
@@ -116,7 +128,8 @@ def crawl(starturl):
                 resultQue=resultQue,
                 mailQue=mailQue,
                 host=host,
-                regex=reobj
+                regex=reobj,
+                release=release
             )
             thread.daemon = True
             thread.start()
