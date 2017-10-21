@@ -6,7 +6,7 @@ intended for training purposes.
 
 # Installation
 
-This python package can be installed (optionally into a <a href="http://docs.python-guide.org/en/latest/dev/virtualenvs/#lower-level-virtualenv">virtualenv</a>)
+This python package can be installed (optionally, but strongly recommended into a <a href="http://docs.python-guide.org/en/latest/dev/virtualenvs/#lower-level-virtualenv">virtualenv</a>)
 after requirements have been installed:
 
 ```bash
