@@ -34,7 +34,7 @@ import logfacility
 
 # module settings
 THREAD_TIMEOUT = 10
-REQUEST_CON_TIMEOUT = 3
+REQUEST_CON_TIMEOUT = 5
 REQUEST_READ_TIMEOUT = 5
 REQUEST_TIMEOUT = (REQUEST_CON_TIMEOUT, REQUEST_READ_TIMEOUT)
 LOGGER = logfacility.build_logger()
@@ -61,7 +61,8 @@ class Worker(threading.Thread):
             'pdf', 'jpg', 'mp4', 'zip', 'tif', 'png', 'svg', 'jpg', 'exe'
         ]
         self.bad_words = [
-            'facebook', 'twitter', 'youtube', 'microsoft', 'google'
+            'facebook', 'twitter', 'youtube', 'microsoft', 'google',
+            'wikipedia', 'amazon'
         ]
 
     def extract_host(self, url):
@@ -126,6 +127,8 @@ class Worker(threading.Thread):
                     LOGGER.info('Found match on: %s' % url)
 
             for mail in re.findall(self.regex, content):
+                if mail.split('.')[-1] in self.bad_endings:
+                    continue
                 self.mailQue.put(mail, False)
             for link_raw in self.extract_links(content):
                 host = self.extract_host(link_raw)
@@ -171,6 +174,7 @@ def crawl(starturl, depth=5, numworkers=25, release=False, keyword=None):
     else:
         keyword_reobj = None
 
+    # main loop
     for iteration in xrange(depth):
 
         threadlist = []
@@ -204,6 +208,7 @@ def crawl(starturl, depth=5, numworkers=25, release=False, keyword=None):
             new_mail = mailQue.get(False)
             mail_adresses.add(new_mail)
 
+        # stop if no further links found
         if inputQue.empty():
             break
 

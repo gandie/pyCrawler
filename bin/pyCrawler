@@ -19,11 +19,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+'''
+executable of crawler package, parsing arguments from command line
+'''
 
+# builtin
 import argparse
-import crawler.crawler as crawler
 import sys
 import time
+
+# custom
+import crawler.crawler as crawler
 
 if __name__ == '__main__':
 
