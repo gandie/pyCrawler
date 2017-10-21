@@ -64,6 +64,10 @@ class Worker(threading.Thread):
             'facebook', 'twitter', 'youtube', 'microsoft', 'google',
             'wikipedia', 'amazon'
         ]
+        self.tag_map = {
+            'a': 'href',
+            'frame': 'src',
+        }
 
     def extract_host(self, url):
         return urlparse.urlparse(url).netloc
@@ -80,9 +84,9 @@ class Worker(threading.Thread):
             LOGGER.warning(e)
             return  # abort if we got invalid stuff
         for element in tree.iter():
-            if element.tag != 'a':
+            if element.tag not in self.tag_map:
                 continue
-            href = element.get('href')
+            href = element.get(self.tag_map[element.tag])
             if not href:
                 continue
             if href.split('.')[-1] in self.bad_endings:
