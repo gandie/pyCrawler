@@ -6,7 +6,7 @@ intended for training purposes.
 
 # Installation
 
-This python package can be installed (optionally into a virtualenv)
+This python package can be installed (optionally into a <a href="http://docs.python-guide.org/en/latest/dev/virtualenvs/#lower-level-virtualenv">virtualenv</a>)
 after requirements have been installed:
 
 ```bash
@@ -14,7 +14,7 @@ pip install -r requirements.txt
 python setup.py install
 ```
 
-It is also possible to build a debian-package using the make-deb
+It is also possible to build a debian-package using the <a href="https://github.com/nylas/make-deb">make-deb</a>
 toolchain.
 
 # Usage
