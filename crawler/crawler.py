@@ -20,13 +20,13 @@
 
 # pip
 import requests
+from lxml import etree
 
 # builtin
 import threading
 import Queue
 import re
 import urlparse
-from lxml import etree
 from StringIO import StringIO
 
 # CUSTOM
@@ -34,6 +34,9 @@ import logfacility
 
 # module settings
 THREAD_TIMEOUT = 10
+REQUEST_CON_TIMEOUT = 3
+REQUEST_READ_TIMEOUT = 5
+REQUEST_TIMEOUT = (REQUEST_CON_TIMEOUT, REQUEST_READ_TIMEOUT)
 LOGGER = logfacility.build_logger()
 
 
@@ -107,7 +110,7 @@ class Worker(threading.Thread):
                 result = requests.get(
                     url,
                     allow_redirects=True,
-                    timeout=5.0,
+                    timeout=REQUEST_TIMEOUT,
                     headers=headers
                 )
                 content = result.content
@@ -187,7 +190,7 @@ def crawl(starturl, depth=5, numworkers=25, release=False, keyword=None):
             threadlist.append(thread)
 
         for thread in threadlist:
-            thread.join(10)
+            thread.join(THREAD_TIMEOUT)
 
         LOGGER.info('-----> GENERATION FINISHED <-----')
 
