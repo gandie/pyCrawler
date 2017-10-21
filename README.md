@@ -19,7 +19,7 @@ toolchain.
 
 # Usage
 
-```bash
+```
 usage: pyCrawler [-h] [-d DEPTH] [-n NUMWORKERS] [-r] [-k KEYWORD] url
 
 positional arguments:
