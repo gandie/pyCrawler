@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+#
 # Copyright (c) 2017 Lars Bergmann
 #
 # GNU GENERAL PUBLIC LICENSE
