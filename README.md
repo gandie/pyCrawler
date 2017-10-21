@@ -9,14 +9,17 @@ intended for training purposes.
 This python package can be installed (optionally into a virtualenv)
 after requirements have been installed:
 
+```bash
 pip install -r requirements.txt
 python setup.py install
+```
 
 It is also possible to build a debian-package using the make-deb
 toolchain.
 
 # Usage
 
+```bash
 usage: pyCrawler [-h] [-d DEPTH] [-n NUMWORKERS] [-r] [-k KEYWORD] url
 
 positional arguments:
@@ -31,3 +34,4 @@ optional arguments:
   -r, --release         Allow the crawler to leave host given by url
   -k KEYWORD, --keyword KEYWORD
                         Give optional keyword to search for
+```
