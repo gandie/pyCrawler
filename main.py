@@ -1,3 +1,22 @@
+# Copyright (c) 2017 Lars Bergmann
+#
+# GNU GENERAL PUBLIC LICENSE
+#    Version 3, 29 June 2007
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
 import argparse
 import crawler.crawler as crawler
 import sys
@@ -29,6 +48,13 @@ if __name__ == '__main__':
         default=False
     )
 
+    parser.add_argument(
+        '-k',
+        '--keyword',
+        help='Give optional keyword to search for',
+        default=None
+    )
+
     args = parser.parse_args()
 
     url = args.url
@@ -37,7 +63,8 @@ if __name__ == '__main__':
         starturl=url.decode('utf-8'),
         depth=args.depth,
         numworkers=args.numworkers,
-        release=args.release
+        release=args.release,
+        keyword=args.keyword
     )
     runtime = time.time() - start
     print('Crawler took %s secdonds' % runtime)
