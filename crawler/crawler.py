@@ -27,6 +27,7 @@ import threading
 import Queue
 import re
 import urlparse
+import random
 from StringIO import StringIO
 
 # CUSTOM
@@ -202,11 +203,19 @@ def crawl(starturl, depth=5, numworkers=25, release=False, keyword=None):
 
         LOGGER.info('-----> GENERATION FINISHED <-----')
 
+        results = []
         while not resultQue.empty():
             new_url = resultQue.get(False)
             if new_url not in linksdone:
                 linksdone.add(new_url)
-                inputQue.put(new_url, False)
+                results.append(new_url)
+                # inputQue.put(new_url, False)
+
+        random.shuffle(results)
+        LOGGER.info('-----> LINKS SHUFFLED <-----')
+
+        for url in results:
+            inputQue.put(url, False)
 
         while not mailQue.empty():
             new_mail = mailQue.get(False)
