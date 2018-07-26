@@ -25,11 +25,9 @@ executable of crawler package, parsing arguments from command line
 
 # builtin
 import argparse
-import sys
-import time
 
 # custom
-import crawler.crawler as crawler
+import crawler.crawler as pyCrawler
 
 if __name__ == '__main__':
 
@@ -66,14 +64,11 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    url = args.url
-    start = time.time()
-    crawler.crawl(
-        starturl=url.decode('utf-8'),
+    pycrawler = pyCrawler.Crawler(
+        starturl=args.url.decode('utf-8'),
         depth=args.depth,
         numworkers=args.numworkers,
         release=args.release,
         keyword=args.keyword
     )
-    runtime = time.time() - start
-    print('Crawler took %s secdonds' % runtime)
+    pycrawler.run()

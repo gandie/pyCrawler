@@ -29,6 +29,7 @@ import re
 import urlparse
 import random
 from StringIO import StringIO
+import time
 
 # CUSTOM
 import logfacility
@@ -43,30 +44,40 @@ LOGGER = logfacility.build_logger()
 
 class Worker(threading.Thread):
     '''
-    Worker thread started by crawl() function
-    See run method for detaills
+    Worker thread started by Crawler.crawl() method
+    Fetches urls from inputQue and puts mail addresses found to mailQue and new
+    links to resultQue.
     '''
     def __init__(self, inputQue, resultQue, mailQue, host, regex, keyword,
                  release, **kwargs):
+
         super(Worker, self).__init__(**kwargs)
+
         self.inputQue = inputQue
         self.resultQue = resultQue
         self.mailQue = mailQue
+
         self.host = host
         self.release = release
         self.keyword = keyword
         self.regex = regex
+
+        self.bytes_done = 0
+
         self.parser = etree.HTMLParser()
 
         self.bad_endings = [
-            'pdf', 'jpg', 'mp4', 'zip', 'tif', 'png', 'svg', 'jpg', 'exe'
+            'pdf', 'jpg', 'mp4', 'zip', 'tif', 'png', 'svg', 'jpg', 'exe', 'ico'
         ]
         self.bad_words = [
             'facebook', 'twitter', 'youtube', 'microsoft', 'google',
-            'wikipedia', 'amazon'
+            'wikipedia', 'amazon', 'github'
         ]
         self.tag_map = {
             'a': 'href',
+            'area': 'href',
+            'base': 'href',
+            'link': 'href',
             'frame': 'src',
         }
 
@@ -75,7 +86,8 @@ class Worker(threading.Thread):
 
     def extract_links(self, html):
         '''
-        build tree object from html and yield href atrributes of 'a' tags
+        build tree object from html and yield attributes from tags defined via
+        tag_map
         '''
         # we need something that behaves like a filehandle here!
         stringio = StringIO(html)
@@ -120,7 +132,8 @@ class Worker(threading.Thread):
                     headers=headers
                 )
                 content = result.content
-            except Exception, e:
+                self.bytes_done += len(content)
+            except Exception as e:
                 LOGGER.warning(e)
                 continue  # our requests has failed,but we don't care too much
 
@@ -139,6 +152,7 @@ class Worker(threading.Thread):
                 host = self.extract_host(link_raw)
                 if not host:
                     # link is relative or something else
+                    # TODO: this part is broken for some relative links!
                     new_link = urlparse.urljoin(url, link_raw)
                     if new_link.startswith('http'):
                         self.resultQue.put(new_link)
@@ -152,88 +166,124 @@ class Worker(threading.Thread):
             LOGGER.info('URL done: %s' % url)
 
 
-def crawl(starturl, depth=5, numworkers=25, release=False, keyword=None):
-    '''
-    main function of crawler module
-    starts ques, prepares arguments and runs main loop:
-    -build and start threads
-    -catch threads when they have finished (or time out)
-    -collect results from ques
-    '''
-    inputQue = Queue.Queue()
-    resultQue = Queue.Queue()
-    mailQue = Queue.Queue()
+class Crawler(object):
 
-    inputQue.put(starturl, False)
+    def __init__(self, starturl, depth=5, numworkers=25, release=False,
+                 keyword=None):
 
-    linksdone = set()
-    mail_adresses = set()
+        self.starturl = starturl
+        self.depth = depth
+        self.numworkers = numworkers
+        self.release = release
+        self.keyword = keyword
 
-    host = urlparse.urlparse(starturl).netloc
+        self.inputQue = Queue.Queue()
+        self.resultQue = Queue.Queue()
+        self.mailQue = Queue.Queue()
 
-    reobj = re.compile(
-        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,6}\b", re.IGNORECASE
-    )
-    if keyword is not None:
-        keyword_reobj = re.compile(re.escape(keyword), re.IGNORECASE)
-    else:
-        keyword_reobj = None
+        self.inputQue.put(starturl, False)
 
-    # main loop
-    for iteration in xrange(depth):
+        self.linksdone = set()
+        self.mail_adresses = set()
 
-        threadlist = []
+        self.bytes_done = 0
 
-        for _ in xrange(numworkers):
-            thread = Worker(
-                inputQue=inputQue,
-                resultQue=resultQue,
-                mailQue=mailQue,
-                host=host,
-                regex=reobj,
-                keyword=keyword_reobj,
-                release=release
-            )
-            thread.daemon = True
-            thread.start()
-            threadlist.append(thread)
+        self.host = urlparse.urlparse(starturl).netloc
 
-        for thread in threadlist:
-            thread.join(THREAD_TIMEOUT)
+        self.email_regex = re.compile(
+            r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,6}\b", re.IGNORECASE
+        )
 
-        LOGGER.info('-----> GENERATION FINISHED <-----')
+        if self.keyword is not None:
+            self.keyword_regex = re.compile(re.escape(keyword), re.IGNORECASE)
+        else:
+            self.keyword_regex = None
 
-        results = []
-        while not resultQue.empty():
-            new_url = resultQue.get(False)
-            if new_url not in linksdone:
-                linksdone.add(new_url)
-                results.append(new_url)
-                # inputQue.put(new_url, False)
+        LOGGER.info('-----> CRAWLER INITIALIZED <-----')
 
-        random.shuffle(results)
-        LOGGER.info('-----> LINKS SHUFFLED <-----')
+    def run(self, report=True):
+        '''method to be called from executable'''
+        starttime = time.time()
+        try:
+            self.crawl()
+        except KeyboardInterrupt:
+            pass
+        except Exception:
+            raise
+        self.runtime = time.time() - starttime
+        if report:
+            self.report()
 
-        for url in results:
-            inputQue.put(url, False)
+    def crawl(self):
+        '''main loop'''
+        for iteration in range(self.depth):
 
-        while not mailQue.empty():
-            new_mail = mailQue.get(False)
-            mail_adresses.add(new_mail)
+            threadlist = []
 
-        # stop if no further links found
-        if inputQue.empty():
-            break
+            for _ in range(self.numworkers):
+                thread = Worker(
+                    inputQue=self.inputQue,
+                    resultQue=self.resultQue,
+                    mailQue=self.mailQue,
+                    host=self.host,
+                    regex=self.email_regex,
+                    keyword=self.keyword_regex,
+                    release=self.release
+                )
+                thread.daemon = True
+                thread.start()
+                threadlist.append(thread)
 
-    LOGGER.info('-----> CRAWLER FINISHED <-----')
-    LOGGER.info('-----> REPORT FOLLOWS <-----')
-    LOGGER.info('From starturl %s found following sites:' % starturl)
-    for link in linksdone:
-        LOGGER.info(link)
-    LOGGER.info('-----> Got mails: <-----')
-    for mail in mail_adresses:
-        LOGGER.info(mail)
-    LOGGER.info('-----> Finished linklist: <-----')
-    LOGGER.info(inputQue.empty())
-    LOGGER.info('-----> Links done: <-----')
-    LOGGER.info(len(linksdone))
+            LOGGER.info('-----> THREADS STARTED <-----')
+
+            for thread in threadlist:
+                thread.join(THREAD_TIMEOUT)
+                self.bytes_done += thread.bytes_done
+            LOGGER.info('-----> GENERATION FINISHED <-----')
+
+            results = []
+            while not self.resultQue.empty():
+                new_url = self.resultQue.get(False)
+                # normalize url
+                new_url_cleaned = urlparse.urlparse(new_url)
+                new_url_cleaned = urlparse.urlunparse(new_url_cleaned)
+                if new_url_cleaned not in self.linksdone:
+                    self.linksdone.add(new_url_cleaned)
+                    results.append(new_url_cleaned)
+
+            random.shuffle(results)
+            LOGGER.info('-----> LINKS SHUFFLED <-----')
+
+            # refill inputQue
+            for url in results:
+                self.inputQue.put(url, False)
+
+            while not self.mailQue.empty():
+                new_mail = self.mailQue.get(False)
+                self.mail_adresses.add(new_mail)
+
+            # stop if no further links found
+            if self.inputQue.empty():
+                break
+
+    def report(self):
+        '''report result to logger (streaming to console by default). see
+        logfacility for details'''
+        LOGGER.info('-----> CRAWLER FINISHED <-----')
+        LOGGER.info('-----> REPORT FOLLOWS <-----')
+        LOGGER.info('From starturl %s found following sites:' % self.starturl)
+        for link in self.linksdone:
+            LOGGER.info(link)
+        LOGGER.info('-----> Got mails: <-----')
+        for mail in self.mail_adresses:
+            LOGGER.info(mail)
+        LOGGER.info('-----> Mails found: <-----')
+        LOGGER.info(len(self.mail_adresses))
+        LOGGER.info('-----> Finished linklist: <-----')
+        LOGGER.info(self.inputQue.empty())
+        LOGGER.info('-----> Links done: <-----')
+        LOGGER.info(len(self.linksdone))
+        LOGGER.info('-----> Data processed [MB]: <-----')
+        LOGGER.info(self.bytes_done * 1.0 / (10 ** 6))  # imperial bytes
+        LOGGER.info('-----> Crawler runtime [s]: <-----')
+        LOGGER.info(self.runtime)
