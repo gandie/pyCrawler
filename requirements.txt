@@ -3,5 +3,8 @@ chardet==3.0.4
 idna==2.6
 lxml==4.1.0
 pkg-resources==0.0.0
+ply==3.11
+pycrawler==0.1
 requests==2.18.4
+slimit==0.8.1
 urllib3==1.22
