@@ -53,7 +53,7 @@ class Worker(threading.Thread):
     links to resultQue.
     '''
     def __init__(self, inputQue, resultQue, mailQue, host, regex, keyword,
-                 release, **kwargs):
+                 release, checkJS=False, **kwargs):
 
         super(Worker, self).__init__(**kwargs)
 
@@ -63,6 +63,7 @@ class Worker(threading.Thread):
 
         self.host = host
         self.release = release
+        self.checkJS = checkJS
         self.keyword = keyword
         self.regex = regex
 
@@ -84,9 +85,13 @@ class Worker(threading.Thread):
             'link': 'href',
             'frame': 'src',
             'iframe': 'src',
-            'script': 'src',
         }
 
+        if self.checkJS:
+            self.tag_map.update({
+                'script': 'src',
+            })
+        
     def extract_host(self, url):
         return urlparse.urlparse(url).netloc
 
@@ -148,7 +153,7 @@ class Worker(threading.Thread):
                 LOGGER.warning(e)
                 continue  # our requests has failed,but we don't care too much
 
-            if 'javascript' in result.headers.get('Content-Type'):
+            if self.checkJS and 'javascript' in result.headers.get('Content-Type'):
                 parser = Parser()
                 tree = parser.parse(content)
                 for node in nodevisitor.visit(tree):
@@ -191,7 +196,8 @@ class Worker(threading.Thread):
                     # TODO: this part is broken for some relative links!
                     #myhost = self.extract_host(url)
                     #myproto = self.get_proto(url)
-                    # new_link = urlparse.urljoin(url, link_raw)
+                    new_link = urlparse.urljoin(url, link_raw)
+                    '''
                     if link_raw.startswith('/'):
                         new_link = '{proto}://{myhost}{link_raw}'.format(
                             proto=parsed_url.scheme,
@@ -207,13 +213,13 @@ class Worker(threading.Thread):
                         else:
                             new_link = url + '/' + link_raw
                             # new_link = urlparse.urljoin(url, link_raw)
-
+                    '''
                     # print(new_link)
                     # if new_link.startswith('http'):
                     self.resultQue.put(new_link)
                 else:
                     # link is absoulte
-                    if 'www' not in host:
+                    if 'www' not in host and 'www' in self.host:
                         host = 'www.' + host
                     if not self.release and host != self.host:
                         continue
@@ -224,12 +230,13 @@ class Worker(threading.Thread):
 class Crawler(object):
 
     def __init__(self, starturl, depth=5, numworkers=25, release=False,
-                 keyword=None):
+                 keyword=None, javascript=False):
 
         self.starturl = starturl
         self.depth = depth
         self.numworkers = numworkers
         self.release = release
+        self.javascript = javascript
         self.keyword = keyword
 
         self.inputQue = Queue.Queue()
@@ -283,7 +290,8 @@ class Crawler(object):
                     host=self.host,
                     regex=self.email_regex,
                     keyword=self.keyword_regex,
-                    release=self.release
+                    release=self.release,
+                    checkJS=self.javascript
                 )
                 thread.daemon = True
                 thread.start()

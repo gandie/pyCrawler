@@ -56,6 +56,14 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
+        '-j',
+        '--javascript',
+        help='Parse custom Javascript found on page to find more urls',
+        action='store_true',
+        default=False
+    )
+
+    parser.add_argument(
         '-k',
         '--keyword',
         help='Give optional keyword to search for',
@@ -69,6 +77,7 @@ if __name__ == '__main__':
         depth=args.depth,
         numworkers=args.numworkers,
         release=args.release,
-        keyword=args.keyword
+        keyword=args.keyword,
+        javascript=args.javascript
     )
     pycrawler.run()
