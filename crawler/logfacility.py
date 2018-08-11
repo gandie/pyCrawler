@@ -34,7 +34,7 @@ except ImportError:
 
 def build_logger(path=None):
     # one logger to rule em' all
-    LOGGER = logging.getLogger('PageCralwer')
+    LOGGER = logging.getLogger('pyCralwer')
 
     # create formatter
     formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 #
+# crawler.py - main module of pyCrawler containing thread worker and crawler
+#
 # Copyright (c) 2017 Lars Bergmann
 #
 # GNU GENERAL PUBLIC LICENSE
@@ -72,11 +74,12 @@ class Worker(threading.Thread):
         self.parser = etree.HTMLParser()
 
         self.bad_endings = [
-            'pdf', 'jpg', 'mp4', 'zip', 'tif', 'png', 'svg', 'jpg', 'exe', 'ico'
+            'pdf', 'jpg', 'mp4', 'zip', 'tif', 'png', 'svg', 'jpg', 'exe',
+            'ico', 'css'  # we're not interested in css, for now...
         ]
         self.bad_words = [
             'facebook', 'twitter', 'youtube', 'microsoft', 'google',
-            'wikipedia', 'amazon', 'github', 'jquery'
+            'wikipedia', 'amazon', 'github', 'jquery', 'bootstrap'
         ]
         self.tag_map = {
             'a': 'href',
@@ -91,17 +94,14 @@ class Worker(threading.Thread):
             self.tag_map.update({
                 'script': 'src',
             })
-        
+
     def extract_host(self, url):
         return urlparse.urlparse(url).netloc
 
-    def get_proto(self, url):
-        return urlparse.urlparse(url).scheme
-    
     def extract_links(self, html):
         '''
         build tree object from html and yield attributes from tags defined via
-        tag_map
+        tag_map. also filters bad_words and bad_endings
         '''
         # we need something that behaves like a filehandle here!
         stringio = StringIO(html)
@@ -125,10 +125,34 @@ class Worker(threading.Thread):
             else:  # read else like "nobreak"
                 yield href
 
+    def scan_js(self, content):
+        # TODO: needs a queue!
+        parser = Parser()
+        tree = parser.parse(content)
+        for node in nodevisitor.visit(tree):
+            '''
+            if isinstance(node, ast.String):
+                # if '/' in node.value and not node.value.startswith('<'):
+                LOGGER.info('Found string in JS: %s' % node.value)
+            '''
+            if not isinstance(node, ast.Assign):
+                continue
+            leftval = getattr(node.left, 'value', '')
+            if not leftval:
+                continue
+            if 'url' not in leftval:
+                continue
+            if isinstance(node.right, ast.String):
+                LOGGER.info('Found interesting url in JS: %s' % node.right.value)
+            for item in node.right.__dict__.values():
+                if isinstance(item, ast.String):
+                    LOGGER.info('Found interesting url in JS: %s' % item.value)
+
     def run(self):
         '''
         main method of thread doing its work until inputQue is empty
         work is:
+        -fetch content from urls given in inuputQue
         -extract links from a tags
         -scan html for mail adresses
         -optionally scan for keyword
@@ -137,6 +161,7 @@ class Worker(threading.Thread):
             url = self.inputQue.get(False)
             parsed_url = urlparse.urlparse(url)
             try:
+                # XXX: alter user-agent?
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows; U; Windows NT 6.1; '
                                   'rv:2.2) Gecko/20110201',
@@ -153,69 +178,32 @@ class Worker(threading.Thread):
                 LOGGER.warning(e)
                 continue  # our requests has failed,but we don't care too much
 
-            if self.checkJS and 'javascript' in result.headers.get('Content-Type'):
-                parser = Parser()
-                tree = parser.parse(content)
-                for node in nodevisitor.visit(tree):
-                    '''
-                    if isinstance(node, ast.String):
-                        # if '/' in node.value and not node.value.startswith('<'):
-                        LOGGER.info('Found string in JS: %s' % node.value)
-                    '''
-                    if not isinstance(node, ast.Assign):
-                        continue
-                    leftval = getattr(node.left, 'value', '')
-                    if not leftval:
-                        continue
-                    if 'url' not in leftval:
-                        continue
-                    if isinstance(node.right, ast.String):
-                        LOGGER.info('Found interesting url in JS: %s' % node.right.value)
-                    for item in node.right.__dict__.values():
-                        if isinstance(item, ast.String):
-                            LOGGER.info('Found interesting url in JS: %s' % item.value)
-                
-            if 'text/html' not in result.headers.get('Content-Type'):
+            is_js = 'javascript' in result.headers.get('Content-Type')
+            is_html = 'text/html' in result.headers.get('Content-Type')
+
+            if self.checkJS and is_js:
+                self.scan_js(content)
+
+            if not is_html:
                 continue
 
             if self.keyword is not None:
+                # TODO: needs a queue!
                 for match in re.findall(self.keyword, content):
                     LOGGER.info('Found match on: %s' % url)
 
             for mail in re.findall(self.regex, content):
                 if mail.split('.')[-1] in self.bad_endings:
                     continue
+                # TODO: queue must also contain url mail was found on!
                 self.mailQue.put(mail, False)
+
             for link_raw in self.extract_links(content):
                 link_raw = link_raw.strip()
-                # print(link_raw)
                 host = self.extract_host(link_raw)
-                # print(host)
                 if not host:
-                    # link is relative or something else
-                    # TODO: this part is broken for some relative links!
-                    #myhost = self.extract_host(url)
-                    #myproto = self.get_proto(url)
+                    # link is relative
                     new_link = urlparse.urljoin(url, link_raw)
-                    '''
-                    if link_raw.startswith('/'):
-                        new_link = '{proto}://{myhost}{link_raw}'.format(
-                            proto=parsed_url.scheme,
-                            myhost=parsed_url.netloc,
-                            link_raw=link_raw
-                        )
-                    else:
-                        # print url
-                        cut_url = url.rsplit('/', 1)[0]
-                        if parsed_url.netloc in cut_url:
-                            new_link = cut_url + '/' + link_raw
-                            # new_link = urlparse.urljoin(cut_url, link_raw)
-                        else:
-                            new_link = url + '/' + link_raw
-                            # new_link = urlparse.urljoin(url, link_raw)
-                    '''
-                    # print(new_link)
-                    # if new_link.startswith('http'):
                     self.resultQue.put(new_link)
                 else:
                     # link is absoulte
@@ -314,6 +302,8 @@ class Crawler(object):
                     self.linksdone.add(new_url_cleaned)
                     results.append(new_url_cleaned)
 
+            # shuffle is useful in release mode to avoid making too many
+            # requests to the same host at the same time
             random.shuffle(results)
             LOGGER.info('-----> LINKS SHUFFLED <-----')
 
@@ -332,21 +322,18 @@ class Crawler(object):
     def report(self):
         '''report result to logger (streaming to console by default). see
         logfacility for details'''
-        LOGGER.info('-----> CRAWLER FINISHED <-----')
-        LOGGER.info('-----> REPORT FOLLOWS <-----')
-        LOGGER.info('From starturl %s found following sites:' % self.starturl)
-        for link in self.linksdone:
-            LOGGER.info(link)
-        LOGGER.info('-----> Got mails: <-----')
+        print('-----> CRAWLER FINISHED <-----')
+        print('-----> REPORT FOLLOWS <-----')
+        print('-----> Got mails: <-----')
         for mail in self.mail_adresses:
-            LOGGER.info(mail)
-        LOGGER.info('-----> Mails found: <-----')
-        LOGGER.info(len(self.mail_adresses))
-        LOGGER.info('-----> Finished linklist: <-----')
-        LOGGER.info(self.inputQue.empty())
-        LOGGER.info('-----> Links done: <-----')
-        LOGGER.info(len(self.linksdone))
-        LOGGER.info('-----> Data processed [MB]: <-----')
-        LOGGER.info(self.bytes_done * 1.0 / (10 ** 6))  # imperial bytes
-        LOGGER.info('-----> Crawler runtime [s]: <-----')
-        LOGGER.info(self.runtime)
+            print(mail)
+        print('-----> Mails found: <-----')
+        print(len(self.mail_adresses))
+        print('-----> Finished linklist: <-----')
+        print(self.inputQue.empty())
+        print('-----> Links done: <-----')
+        print(len(self.linksdone))
+        print('-----> Data processed [MB]: <-----')
+        print(self.bytes_done * 1.0 / (10 ** 6))  # imperial bytes
+        print('-----> Crawler runtime [s]: <-----')
+        print(self.runtime)
