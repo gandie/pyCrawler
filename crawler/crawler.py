@@ -30,20 +30,34 @@ from slimit.visitors import nodevisitor
 
 # builtin
 import threading
-import Queue
+#import Queue
+from queue import Queue
 import re
-import urlparse
+try:
+    import urlparse
+except ImportError:
+    import urllib.parse as urlparse
 import random
-from StringIO import StringIO
+#from StringIO import StringIO
+from io import StringIO
+from io import BytesIO
 import time
+from builtins import str
+import js2py
+import json
+
+from guesslang import Guess
 
 # CUSTOM
-import logfacility
+try:
+    import logfacility
+except ImportError:
+    import crawler.logfacility as logfacility
 
 # module settings
-THREAD_TIMEOUT = 10
-REQUEST_CON_TIMEOUT = 5
-REQUEST_READ_TIMEOUT = 5
+THREAD_TIMEOUT = 20
+REQUEST_CON_TIMEOUT = 10
+REQUEST_READ_TIMEOUT = 10
 REQUEST_TIMEOUT = (REQUEST_CON_TIMEOUT, REQUEST_READ_TIMEOUT)
 LOGGER = logfacility.build_logger()
 
@@ -69,6 +83,8 @@ class Worker(threading.Thread):
         self.keyword = keyword
         self.regex = regex
 
+        self.base = None
+
         self.bytes_done = 0
 
         self.parser = etree.HTMLParser()
@@ -88,6 +104,7 @@ class Worker(threading.Thread):
             'link': 'href',
             'frame': 'src',
             'iframe': 'src',
+            'base': 'href,'
         }
 
         if self.checkJS:
@@ -96,6 +113,8 @@ class Worker(threading.Thread):
             })
 
     def extract_host(self, url):
+        if self.host in url:
+            return self.host
         return urlparse.urlparse(url).netloc
 
     def extract_links(self, html):
@@ -104,11 +123,13 @@ class Worker(threading.Thread):
         tag_map. also filters bad_words and bad_endings
         '''
         # we need something that behaves like a filehandle here!
-        stringio = StringIO(html)
+        # stringio = StringIO(html)
+        stringio = BytesIO(html)
         try:
             tree = etree.parse(stringio, self.parser)
-        except Exception, e:
+        except Exception as e:
             LOGGER.warning(e)
+            LOGGER.warning('Eierau')
             return  # abort if we got invalid stuff
         for element in tree.iter():
             if element.tag not in self.tag_map:
@@ -123,18 +144,20 @@ class Worker(threading.Thread):
                 if bad_word in href:
                     break
             else:  # read else like "nobreak"
+                if element.tag == 'base':
+                    self.base = href
                 yield href
 
-    def scan_js(self, content):
+    def scan_js(self, url, content):
+        '''scan javascript for url assignments (like ajax calls)'''
         # TODO: needs a queue!
+        LOGGER.info('Scanning Javascript on %s' % url)
+        # cut of last part from url
+        # url = url.rsplit('/', 1)[0]
+
         parser = Parser()
         tree = parser.parse(content)
         for node in nodevisitor.visit(tree):
-            '''
-            if isinstance(node, ast.String):
-                # if '/' in node.value and not node.value.startswith('<'):
-                LOGGER.info('Found string in JS: %s' % node.value)
-            '''
             if not isinstance(node, ast.Assign):
                 continue
             leftval = getattr(node.left, 'value', '')
@@ -143,10 +166,48 @@ class Worker(threading.Thread):
             if 'url' not in leftval:
                 continue
             if isinstance(node.right, ast.String):
-                LOGGER.info('Found interesting url in JS: %s' % node.right.value)
+                LOGGER.info('Found interesting url in JS: %s' % node.right.value[1:-1])
+                self.check_link(url, node.right.value[2:-1])
             for item in node.right.__dict__.values():
                 if isinstance(item, ast.String):
-                    LOGGER.info('Found interesting url in JS: %s' % item.value)
+                    LOGGER.info('Found interesting url in JS: %s' % item.value[1:-1])
+                    self.check_link(url, item.value[2:-1])
+
+    def check_link(self, url, link_raw):
+        '''checks a link to be relative or absolute and handle it according to
+        settings'''
+        link_raw = link_raw.strip()
+        link_raw = link_raw.replace("'", "")
+        link_raw = link_raw.replace("\\", "")
+        host = self.extract_host(link_raw)
+        if not host:
+            # link is relative
+            if self.base:
+                new_link = urlparse.urljoin(self.base, link_raw)
+            else:
+                new_link = urlparse.urljoin(url, link_raw)
+            # LOGGER.info('Putting link to resultQue: %s' % new_link)
+            self.resultQue.put(new_link)
+        else:
+            # link is absoulte
+            if 'www' not in host and 'www' in self.host:
+                host = 'www.' + host
+            if not self.release and host != self.host:
+                return
+            # LOGGER.info('Putting link to resultQue: %s' % link_raw)
+            self.resultQue.put(link_raw)
+
+    def find(self, key, dictionary):
+        for k, v in dictionary.items():
+            if k == key:
+                yield v
+            elif isinstance(v, dict):
+                for result in self.find(key, v):
+                    yield result
+            elif isinstance(v, list):
+                for d in v:
+                    for result in self.find(key, d):
+                        yield result
 
     def run(self):
         '''
@@ -174,44 +235,64 @@ class Worker(threading.Thread):
                 )
                 content = result.content
                 self.bytes_done += len(content)
+                text = result.text
             except Exception as e:
                 LOGGER.warning(e)
                 continue  # our requests has failed,but we don't care too much
 
             is_js = 'javascript' in result.headers.get('Content-Type')
             is_html = 'text/html' in result.headers.get('Content-Type')
+            is_plain = 'plain' in result.headers.get('Content-Type')
+
+            if is_plain:
+                langnames = Guess().probable_languages(text)
+                print('++++++++++++++++++++++++++++++++++++++++++++++++')
+                print(langnames, url)
+                print('++++++++++++++++++++++++++++++++++++++++++++++++')
+                if 'Javascript' in langnames:
+                    try:
+                        json_from_plain = json.loads(text)
+                    except:
+                        json_from_plain = None
+                        LOGGER.error('JSON evaluation failed on : %s' % text)
+                    if json_from_plain:
+                        LOGGER.info('Got JSON from plain: %s' % json_from_plain)
+
+                if 'Python' in langnames:
+                    try:
+                        python_fom_plain = eval(text)
+                    except:
+                        LOGGER.error('Python evaluation failed on : %s' % text)
+                        python_fom_plain = None
+                    if python_fom_plain:
+                        LOGGER.info('Got Python Code from plain: %s' % python_fom_plain)
+                        if isinstance(python_fom_plain, dict):
+                            urls = list(self.find('url', python_fom_plain))
+                            LOGGER.info('Got urls from python dict: %s' % urls)
+                            for link in urls:
+                                self.check_link(url, link)
 
             if self.checkJS and is_js:
-                self.scan_js(content)
+                self.scan_js(url, text)
 
             if not is_html:
                 continue
 
             if self.keyword is not None:
                 # TODO: needs a queue!
-                for match in re.findall(self.keyword, content):
+                for match in re.findall(self.keyword, text):
                     LOGGER.info('Found match on: %s' % url)
 
-            for mail in re.findall(self.regex, content):
+            for mail in re.findall(self.regex, text):
                 if mail.split('.')[-1] in self.bad_endings:
                     continue
                 # TODO: queue must also contain url mail was found on!
                 self.mailQue.put(mail, False)
 
             for link_raw in self.extract_links(content):
-                link_raw = link_raw.strip()
-                host = self.extract_host(link_raw)
-                if not host:
-                    # link is relative
-                    new_link = urlparse.urljoin(url, link_raw)
-                    self.resultQue.put(new_link)
-                else:
-                    # link is absoulte
-                    if 'www' not in host and 'www' in self.host:
-                        host = 'www.' + host
-                    if not self.release and host != self.host:
-                        continue
-                    self.resultQue.put(link_raw)
+                self.check_link(url, link_raw)
+
+            self.base = None
             LOGGER.info('URL done: %s' % url)
 
 
@@ -227,9 +308,9 @@ class Crawler(object):
         self.javascript = javascript
         self.keyword = keyword
 
-        self.inputQue = Queue.Queue()
-        self.resultQue = Queue.Queue()
-        self.mailQue = Queue.Queue()
+        self.inputQue = Queue()
+        self.resultQue = Queue()
+        self.mailQue = Queue()
 
         self.inputQue.put(starturl, False)
 
@@ -256,7 +337,7 @@ class Crawler(object):
         starttime = time.time()
         try:
             self.crawl()
-        except KeyboardInterrupt:
+        except KeyboardInterrupt:  # ..abort crawler using CTRL+C
             pass
         except Exception:
             raise

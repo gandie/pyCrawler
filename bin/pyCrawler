@@ -73,7 +73,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     pycrawler = pyCrawler.Crawler(
-        starturl=args.url.decode('utf-8'),
+        starturl=args.url,
         depth=args.depth,
         numworkers=args.numworkers,
         release=args.release,
