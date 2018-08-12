@@ -68,7 +68,7 @@ class Worker(threading.Thread):
     links to resultQue.
     '''
     def __init__(self, inputQue, resultQue, mailQue, host, regex, keyword,
-                 release, checkJS=False, **kwargs):
+                 release, checkJS=False, checkPlain=False, **kwargs):
 
         super(Worker, self).__init__(**kwargs)
 
@@ -79,6 +79,7 @@ class Worker(threading.Thread):
         self.host = host
         self.release = release
         self.checkJS = checkJS
+        self.checkPlain = checkPlain
         self.keyword = keyword
         self.regex = regex
 
@@ -90,7 +91,7 @@ class Worker(threading.Thread):
 
         self.bad_endings = [
             'pdf', 'jpg', 'mp4', 'zip', 'tif', 'png', 'svg', 'jpg', 'exe',
-            'ico', 'css'  # we're not interested in css, for now...
+            'ico', 'css', 'mpg'  # we're not interested in css, for now...
         ]
         self.bad_words = [
             'facebook', 'twitter', 'youtube', 'microsoft', 'google',
@@ -209,6 +210,8 @@ class Worker(threading.Thread):
         link_raw = link_raw.strip()
         link_raw = link_raw.replace("'", "")
         link_raw = link_raw.replace("\\", "")
+        if 'mailto:' in link_raw:
+            return
         host = self.extract_host(link_raw)
         if not host:
             # link is relative
@@ -295,14 +298,18 @@ class Worker(threading.Thread):
                 LOGGER.info('Unknown content-type found on: %s' % url)
                 continue
 
+            LOGGER.info(
+                'Got content-type %s from url %s' % (content_type, url)
+            )
+
             is_js = 'javascript' in content_type
             is_html = 'text/html' in content_type
             is_plain = 'plain' in content_type
 
-            if is_plain:
+            if is_plain and self.checkPlain:
                 self.scan_plain(url, text)
 
-            if self.checkJS and is_js:
+            if is_js and self.checkJS:
                 self.scan_js(url, text)
 
             if not is_html:
@@ -327,13 +334,14 @@ class Crawler(object):
     threads and reports results after main loop is finished'''
 
     def __init__(self, starturl, depth=5, numworkers=25, release=False,
-                 keyword=None, javascript=False):
+                 keyword=None, javascript=False, plain=False):
 
         self.starturl = starturl
         self.depth = depth
         self.numworkers = numworkers
         self.release = release
         self.javascript = javascript
+        self.plain = plain
         self.keyword = keyword
 
         self.inputQue = Queue()
@@ -388,7 +396,8 @@ class Crawler(object):
                     regex=self.email_regex,
                     keyword=self.keyword_regex,
                     release=self.release,
-                    checkJS=self.javascript
+                    checkJS=self.javascript,
+                    checkPlain=self.plain
                 )
                 thread.daemon = True
                 thread.start()

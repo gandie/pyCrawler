@@ -67,6 +67,14 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
+        '-p',
+        '--plain',
+        help='Guess language from plain text and try to evaluate (Python/JS).',
+        action='store_true',
+        default=False
+    )
+
+    parser.add_argument(
         '-k',
         '--keyword',
         help='Give optional keyword to search for',
@@ -81,6 +89,7 @@ if __name__ == '__main__':
         numworkers=args.numworkers,
         release=args.release,
         keyword=args.keyword,
-        javascript=args.javascript
+        javascript=args.javascript,
+        plain=args.plain
     )
     pycrawler.run()
