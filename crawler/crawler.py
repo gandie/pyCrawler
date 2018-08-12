@@ -20,39 +20,37 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# pip
+# PIP
 import requests
+
+# html / xml parser
 from lxml import etree
 
+# JS parser
 from slimit import ast
 from slimit.parser import Parser
 from slimit.visitors import nodevisitor
 
-# builtin
-import threading
-#import Queue
-from queue import Queue
-import re
-try:
-    import urlparse
-except ImportError:
-    import urllib.parse as urlparse
-import random
-#from StringIO import StringIO
-from io import StringIO
-from io import BytesIO
-import time
-from builtins import str
+# another JS parser / interpreter
+# XXX: not (yet) used
 import js2py
-import json
 
+# guess language of unknown content
 from guesslang import Guess
 
+# BUILTIN
+import threading
+from queue import Queue
+import re
+import urllib.parse as urlparse
+
+import random
+from io import BytesIO
+import time
+import json
+
 # CUSTOM
-try:
-    import logfacility
-except ImportError:
-    import crawler.logfacility as logfacility
+import crawler.logfacility as logfacility
 
 # module settings
 THREAD_TIMEOUT = 20
@@ -104,7 +102,7 @@ class Worker(threading.Thread):
             'link': 'href',
             'frame': 'src',
             'iframe': 'src',
-            'base': 'href,'
+            'base': 'href,',  # important to avoid loops on relative links
         }
 
         if self.checkJS:
@@ -123,13 +121,11 @@ class Worker(threading.Thread):
         tag_map. also filters bad_words and bad_endings
         '''
         # we need something that behaves like a filehandle here!
-        # stringio = StringIO(html)
-        stringio = BytesIO(html)
+        filehandle = BytesIO(html)
         try:
-            tree = etree.parse(stringio, self.parser)
+            tree = etree.parse(filehandle, self.parser)
         except Exception as e:
             LOGGER.warning(e)
-            LOGGER.warning('Eierau')
             return  # abort if we got invalid stuff
         for element in tree.iter():
             if element.tag not in self.tag_map:
@@ -149,29 +145,61 @@ class Worker(threading.Thread):
                 yield href
 
     def scan_js(self, url, content):
-        '''scan javascript for url assignments (like ajax calls)'''
-        # TODO: needs a queue!
+        '''scan javascript for url assignments (like ajax calls).'''
         LOGGER.info('Scanning Javascript on %s' % url)
-        # cut of last part from url
-        # url = url.rsplit('/', 1)[0]
 
         parser = Parser()
         tree = parser.parse(content)
         for node in nodevisitor.visit(tree):
-            if not isinstance(node, ast.Assign):
+            if not isinstance(node, ast.Assign):  # <something>: <something>
                 continue
-            leftval = getattr(node.left, 'value', '')
+            leftval = getattr(node.left, 'value', '')  # 'leftval': <something>
             if not leftval:
                 continue
-            if 'url' not in leftval:
+            if 'url' not in leftval:  # 'url': <something>
                 continue
-            if isinstance(node.right, ast.String):
-                LOGGER.info('Found interesting url in JS: %s' % node.right.value[1:-1])
+            if isinstance(node.right, ast.String):  # 'url': 'somestring'
+                LOGGER.info(
+                    'Found interesting url in JS: %s' % node.right.value[1:-1]
+                )
                 self.check_link(url, node.right.value[2:-1])
-            for item in node.right.__dict__.values():
+            for item in node.right.__dict__.values():  # string in <something>
+                # <something> may be function_call() / variable + 'somestring'
                 if isinstance(item, ast.String):
-                    LOGGER.info('Found interesting url in JS: %s' % item.value[1:-1])
+                    LOGGER.info(
+                        'Found interesting url in JS: %s' % item.value[1:-1]
+                    )
                     self.check_link(url, item.value[2:-1])
+
+    def scan_plain(self, url, text):
+        '''scan text/plain content to be a known language. try to evaluate if
+        known language is found check for more urls'''
+
+        LOGGER.info('Checking plain text content from url: %s' % url)
+        langnames = Guess().probable_languages(text)
+        LOGGER.info('Guessed langnames from url: %s %s' % (url, langnames))
+        if 'Javascript' in langnames:
+            try:
+                json_from_plain = json.loads(text)
+            except Exception:  # we dont care too much
+                json_from_plain = None
+                LOGGER.error('JSON evaluation failed on : %s' % text)
+            if json_from_plain:
+                LOGGER.info('Got JSON from plain: %s' % json_from_plain)
+
+        if 'Python' in langnames:
+            try:
+                python_fom_plain = eval(text)
+            except Exception:  # we dont care too much
+                LOGGER.error('Python evaluation failed on : %s' % text)
+                python_fom_plain = None
+            if python_fom_plain:
+                LOGGER.info('Got Python from plain: %s' % python_fom_plain)
+                if isinstance(python_fom_plain, dict):
+                    urls = list(self.find('url', python_fom_plain))
+                    LOGGER.info('Got urls from python dict: %s' % urls)
+                    for link in urls:
+                        self.check_link(url, link)
 
     def check_link(self, url, link_raw):
         '''checks a link to be relative or absolute and handle it according to
@@ -198,6 +226,7 @@ class Worker(threading.Thread):
             self.resultQue.put(link_raw)
 
     def find(self, key, dictionary):
+        '''check nested dictionary for key, yield values. stolen from net'''
         for k, v in dictionary.items():
             if k == key:
                 yield v
@@ -208,6 +237,40 @@ class Worker(threading.Thread):
                 for d in v:
                     for result in self.find(key, d):
                         yield result
+
+    def request_url(self, url):
+        '''use requests to call given url. returns raw bytes content, text and
+        content-type'''
+        try:
+            # XXX: alter user-agent?
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows; U; Windows NT 6.1; '
+                              'rv:2.2) Gecko/20110201',
+            }
+            result = requests.get(
+                url,
+                allow_redirects=True,
+                timeout=REQUEST_TIMEOUT,
+                headers=headers
+            )
+            content = result.content
+            text = result.text
+            content_type = result.headers.get('Content-Type')
+            self.bytes_done += len(content)
+        except Exception as e:
+            # our requests has failed,but we don't care too much
+            LOGGER.warning(e)
+            return None
+
+        return content, text, content_type
+
+    def scan_mails(self, url, text):
+        '''use regex to check given text for mails, put mails found to Queue'''
+        for mail in re.findall(self.regex, text):
+            if mail.split('.')[-1] in self.bad_endings:
+                continue
+            # TODO: queue must also contain url mail was found on!
+            self.mailQue.put(mail, False)
 
     def run(self):
         '''
@@ -220,57 +283,22 @@ class Worker(threading.Thread):
         '''
         while not self.inputQue.empty():
             url = self.inputQue.get(False)
-            parsed_url = urlparse.urlparse(url)
-            try:
-                # XXX: alter user-agent?
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows; U; Windows NT 6.1; '
-                                  'rv:2.2) Gecko/20110201',
-                }
-                result = requests.get(
-                    url,
-                    allow_redirects=True,
-                    timeout=REQUEST_TIMEOUT,
-                    headers=headers
-                )
-                content = result.content
-                self.bytes_done += len(content)
-                text = result.text
-            except Exception as e:
-                LOGGER.warning(e)
-                continue  # our requests has failed,but we don't care too much
 
-            is_js = 'javascript' in result.headers.get('Content-Type')
-            is_html = 'text/html' in result.headers.get('Content-Type')
-            is_plain = 'plain' in result.headers.get('Content-Type')
+            request_result = self.request_url(url)
+            if not request_result:
+                continue
+            content, text, content_type = request_result
+
+            if not content_type:
+                LOGGER.info('Unknown content-type found on: %s' % url)
+                continue
+
+            is_js = 'javascript' in content_type
+            is_html = 'text/html' in content_type
+            is_plain = 'plain' in content_type
 
             if is_plain:
-                langnames = Guess().probable_languages(text)
-                print('++++++++++++++++++++++++++++++++++++++++++++++++')
-                print(langnames, url)
-                print('++++++++++++++++++++++++++++++++++++++++++++++++')
-                if 'Javascript' in langnames:
-                    try:
-                        json_from_plain = json.loads(text)
-                    except:
-                        json_from_plain = None
-                        LOGGER.error('JSON evaluation failed on : %s' % text)
-                    if json_from_plain:
-                        LOGGER.info('Got JSON from plain: %s' % json_from_plain)
-
-                if 'Python' in langnames:
-                    try:
-                        python_fom_plain = eval(text)
-                    except:
-                        LOGGER.error('Python evaluation failed on : %s' % text)
-                        python_fom_plain = None
-                    if python_fom_plain:
-                        LOGGER.info('Got Python Code from plain: %s' % python_fom_plain)
-                        if isinstance(python_fom_plain, dict):
-                            urls = list(self.find('url', python_fom_plain))
-                            LOGGER.info('Got urls from python dict: %s' % urls)
-                            for link in urls:
-                                self.check_link(url, link)
+                self.scan_plain(url, text)
 
             if self.checkJS and is_js:
                 self.scan_js(url, text)
@@ -283,11 +311,7 @@ class Worker(threading.Thread):
                 for match in re.findall(self.keyword, text):
                     LOGGER.info('Found match on: %s' % url)
 
-            for mail in re.findall(self.regex, text):
-                if mail.split('.')[-1] in self.bad_endings:
-                    continue
-                # TODO: queue must also contain url mail was found on!
-                self.mailQue.put(mail, False)
+            self.scan_mails(url, text)
 
             for link_raw in self.extract_links(content):
                 self.check_link(url, link_raw)
@@ -297,6 +321,8 @@ class Worker(threading.Thread):
 
 
 class Crawler(object):
+    '''main object of crawler module called from executable. handles worker
+    threads and reports results after main loop is finished'''
 
     def __init__(self, starturl, depth=5, numworkers=25, release=False,
                  keyword=None, javascript=False):

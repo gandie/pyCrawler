@@ -1,6 +1,8 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 #
+# pyCrawler - executable of crawler package
+#
 # Copyright (c) 2017 Lars Bergmann
 #
 # GNU GENERAL PUBLIC LICENSE
@@ -20,7 +22,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 '''
-executable of crawler package, parsing arguments from command line
+executable of crawler package, parses arguments from command line and starts
+crawler
 '''
 
 # builtin
