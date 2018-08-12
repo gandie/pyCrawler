@@ -1,5 +1,5 @@
 # pyCrawler
-A simple Python page crawler to extract mail addresses.
+A simple Python3 page crawler to extract mail addresses.
 
 Written as pythonic solution of a programming excercise,
 intended for training purposes.
@@ -20,7 +20,7 @@ toolchain.
 # Usage
 
 ```
-usage: pyCrawler [-h] [-d DEPTH] [-n NUMWORKERS] [-r] [-k KEYWORD] url
+usage: pyCrawler [-h] [-d DEPTH] [-n NUMWORKERS] [-r] [-j] [-k KEYWORD] url
 
 positional arguments:
   url                   This is the url to start crawling from
@@ -32,6 +32,8 @@ optional arguments:
   -n NUMWORKERS, --numworkers NUMWORKERS
                         Number of crawlers spawned. Default 25
   -r, --release         Allow the crawler to leave host given by url
+  -j, --javascript      Parse custom Javascript found on page to find more
+                        urls
   -k KEYWORD, --keyword KEYWORD
                         Give optional keyword to search for
 ```

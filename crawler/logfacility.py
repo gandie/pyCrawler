@@ -28,7 +28,7 @@ try:
     use_journal = True
 except ImportError:
     # logging to file is possible if desired by calling build_logger with a path
-    warnings.warn('Unable to log to journal!')
+    # warnings.warn('Unable to log to journal!')
     use_journal = False
 
 

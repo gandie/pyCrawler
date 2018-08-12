@@ -48,6 +48,7 @@ import random
 from io import BytesIO
 import time
 import json
+import ast as builtin_ast
 
 # CUSTOM
 import crawler.logfacility as logfacility
@@ -189,7 +190,8 @@ class Worker(threading.Thread):
 
         if 'Python' in langnames:
             try:
-                python_fom_plain = eval(text)
+                # python_fom_plain = eval(text)
+                python_fom_plain = builtin_ast.literal_eval(text)
             except Exception:  # we dont care too much
                 LOGGER.error('Python evaluation failed on : %s' % text)
                 python_fom_plain = None
