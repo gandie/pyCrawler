@@ -118,7 +118,7 @@ class Worker(threading.Thread):
         return urlparse.urlparse(url).netloc
 
     def extract_links(self, html):
-        '''
+        ''' CPUTASK
         build tree object from html and yield attributes from tags defined via
         tag_map. also filters bad_words and bad_endings
         '''
@@ -147,7 +147,8 @@ class Worker(threading.Thread):
                 yield href
 
     def scan_js(self, url, content):
-        '''scan javascript for url assignments (like ajax calls).'''
+        '''CPUTASK
+        scan javascript for url assignments (like ajax calls).'''
         LOGGER.info('Scanning Javascript on %s' % url)
 
         parser = Parser()
@@ -174,7 +175,8 @@ class Worker(threading.Thread):
                     self.check_link(url, item.value[2:-1])
 
     def scan_plain(self, url, text):
-        '''scan text/plain content to be a known language. try to evaluate if
+        '''CPUTASK
+        scan text/plain content to be a known language. try to evaluate if
         known language is found check for more urls'''
 
         LOGGER.info('Checking plain text content from url: %s' % url)
