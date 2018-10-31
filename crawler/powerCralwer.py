@@ -1,18 +1,23 @@
 import requests
+from lxml import etree
 from queue import Queue as TQueue
 from multiprocessing import Process
 from multiprocessing import JoinableQueue as MQueue
-from lxml import etree
 import urllib.parse as urlparse
 from io import BytesIO
 import threading
+import time
+import re
+import multiprocessing
+import os
 
 url_queue = MQueue()
 html_queue = MQueue()
 
+
 class HTMLProcessor(Process):
 
-    def __init__(self, inputQue, outputQue, host, release, **kwargs):
+    def __init__(self, inputQue, outputQue, host, release, proc_id, **kwargs):
         super(HTMLProcessor, self).__init__()
         self.inputQue = inputQue
         self.outputQue = outputQue
@@ -21,6 +26,11 @@ class HTMLProcessor(Process):
         self.kwargs = kwargs
         self.parser = etree.HTMLParser()
         self.base = None
+        self.proc_id = 'Process%s' % proc_id
+
+        self.filename = 'proc%s_log.txt' % proc_id
+        self.filehandle = open(self.filename, 'a')
+        self.mailsfound = set()
 
         self.bad_endings = [
             'pdf', 'jpg', 'mp4', 'zip', 'tif', 'png', 'svg', 'jpg', 'exe',
@@ -39,6 +49,19 @@ class HTMLProcessor(Process):
             'iframe': 'src',
             'base': 'href,',  # important to avoid loops on relative links
         }
+
+        self.email_regex = re.compile(
+            r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,6}\b", re.IGNORECASE
+        )
+
+    def scan_mails(self, url, text):
+        '''use regex to check given text for mails, put mails found to Queue'''
+        for mail in re.findall(self.email_regex, text):
+            if mail.split('.')[-1] in self.bad_endings:
+                continue
+            if mail not in self.mailsfound:
+                self.mailsfound.add(mail)
+                self.filehandle.write(mail + '\n')
 
     def extract_host(self, url):
         if self.host in url:
@@ -102,21 +125,25 @@ class HTMLProcessor(Process):
         """Build some CPU-intensive tasks to run via multiprocessing here."""
         while True:
             try:
-                result_d = self.inputQue.get(timeout=20)
+                result_d = self.inputQue.get(timeout=10)
             except:
-                print('empty, aborting processor')
+                self.filehandle.close()
                 break
             url = result_d['url']
-            print('Working on %s' % url)
+            # print('Working on %s' % url)
             content = result_d['content']
+            text = result_d['text']
+            self.scan_mails(url, text)
             for link in self.extract_links(content):
                 self.check_link(url, link)
-            print('Work done on %s' % url)
+            #print('Work done on %s' % url)
             self.inputQue.task_done()
+        print('empty, aborting processor%s' % self.proc_id)
+        return True
 
 
 def fetch_url(url):
-    print('Trying url: %s' % url)
+    # print('Trying url: %s' % url)
     try:
         # XXX: alter user-agent?
         headers = {
@@ -126,7 +153,7 @@ def fetch_url(url):
         result = requests.get(
             url,
             allow_redirects=True,
-            timeout=(5, 5),
+            timeout=(1, 3),
             headers=headers
         )
         content = result.content
@@ -135,7 +162,7 @@ def fetch_url(url):
     except Exception as e:
         # our requests has failed,but we don't care too much
         # LOGGER.warning(e)
-        print(e)
+        # print(e)
         return None
 
     return content, text, content_type
@@ -144,17 +171,17 @@ def fetch_url(url):
 def process_urls():
     while True:
         try:
-            cur_url = url_queue.get(timeout=10)
+            cur_url = url_queue.get(timeout=2)
         except:
             print('empty requester, aborting...')
             break
-        if not cur_url in linksdone:
+        if cur_url not in linksdone:
             linksdone.append(cur_url)
             # print('links done: %s' % linksdone)
         else:
             url_queue.task_done()
             continue
-        print('now url %s' % cur_url)
+        #print('now url %s' % cur_url)
         result = fetch_url(cur_url)
         # print('result from url %s' % cur_url)
         if result:
@@ -162,38 +189,63 @@ def process_urls():
             if 'text/html' in content_type:
                 process_d = {
                     'url': cur_url,
-                    'content': content
+                    'content': content,
+                    'text': text
                 }
                 html_queue.put(process_d)
                 # print('result put to html queue %s' % cur_url)
-        print('url done %s' % cur_url)
+        #print('url done %s' % cur_url)
         url_queue.task_done()
+    return True
 
 
-linksdone = []
+if __name__ == '__main__':
+    linksdone = []
 
-start_address = 'http://www.sit-watch.de'
-myhost = urlparse.urlparse(start_address).netloc
+    start_address = 'http://www.siemens.de/'
+    starts = [
+    ]
+    myhost = urlparse.urlparse(start_address).netloc
 
-num_requester = 200
-num_processors = 4
+    num_requester = 50
+    num_processors = multiprocessing.cpu_count()
 
-for i in range(num_requester):
-    my_thread = threading.Thread(target=process_urls)
-    # my_thread.daemon = True
-    my_thread.start()
+    for i in range(num_requester):
+        my_thread = threading.Thread(target=process_urls)
+        # my_thread.daemon = True
+        my_thread.start()
 
-for i in range(num_processors):
-    my_processor = HTMLProcessor(
-        inputQue=html_queue,
-        outputQue=url_queue,
-        host=myhost,
-        release=False
-    )
-    # my_processor.daemon = True
-    my_processor.start()
+    procs = []
+    for i in range(num_processors):
+        my_processor = HTMLProcessor(
+            inputQue=html_queue,
+            outputQue=url_queue,
+            host=myhost,
+            release=True,
+            proc_id=i
+        )
+        # my_processor.daemon = True
+        my_processor.start()
+        procs.append(my_processor)
 
-url_queue.put(start_address)
+    url_queue.put(start_address)
 
-url_queue.join()
-html_queue.join()
+    for item in starts:
+        url_queue.put(item)
+
+    url_queue.join()
+    html_queue.join()
+
+    try:
+        while True:
+            procs = [p for p in procs if p.is_alive()]
+            print('Working. Living procs:%s' % len(procs))
+            time.sleep(.5)
+            if not len(procs):
+                break
+    except KeyboardInterrupt:
+        print('KeyboardInterrupt')
+
+    print('now i am done...reducing mails to one file...')
+    os.system('cat proc* | sort --unique > mails.txt')
+    os.system('rm proc*')

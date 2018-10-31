@@ -25,10 +25,11 @@ ply==3.11
 prompt-toolkit==1.0.15
 protobuf==3.6.0
 ptyprocess==0.6.0
+pycrawler==0.1
 Pygments==2.2.0
 pyjsparser==2.5.2
 pytz==2018.5
-requests==2.19.1
+requests==2.20.0
 simplegeneric==0.8.1
 six==1.11.0
 slimit==0.8.1
