@@ -38,7 +38,8 @@ class HTMLProcessor(Process):
         ]
         self.bad_words = [
             'facebook', 'twitter', 'youtube', 'microsoft', 'google',
-            'wikipedia', 'amazon', 'github', 'jquery', 'bootstrap'
+            'wikipedia', 'amazon', 'github', 'jquery', 'bootstrap',
+            'instagram', 'vimeo'
         ]
         self.tag_map = {
             'a': 'href',
@@ -80,6 +81,8 @@ class HTMLProcessor(Process):
         except Exception as e:
             LOGGER.warning(e)
             return  # abort if we got invalid stuff
+        finally:
+            filehandle.close()
         for element in tree.iter():
             if element.tag not in self.tag_map:
                 continue
@@ -125,7 +128,7 @@ class HTMLProcessor(Process):
         """Build some CPU-intensive tasks to run via multiprocessing here."""
         while True:
             try:
-                result_d = self.inputQue.get(timeout=10)
+                result_d = self.inputQue.get(timeout=20)
             except:
                 self.filehandle.close()
                 break
@@ -171,7 +174,7 @@ def fetch_url(url):
 def process_urls():
     while True:
         try:
-            cur_url = url_queue.get(timeout=2)
+            cur_url = url_queue.get(timeout=20)
         except:
             print('empty requester, aborting...')
             break
@@ -202,12 +205,13 @@ def process_urls():
 if __name__ == '__main__':
     linksdone = []
 
-    start_address = 'http://www.siemens.de/'
+    # start_address = 'https://www.flafla.de/'
+    start_address = 'https://der-dritte-weg.info/'
     starts = [
     ]
     myhost = urlparse.urlparse(start_address).netloc
 
-    num_requester = 50
+    num_requester = 100
     num_processors = multiprocessing.cpu_count()
 
     for i in range(num_requester):

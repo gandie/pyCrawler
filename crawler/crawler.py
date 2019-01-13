@@ -95,7 +95,8 @@ class Worker(threading.Thread):
         ]
         self.bad_words = [
             'facebook', 'twitter', 'youtube', 'microsoft', 'google',
-            'wikipedia', 'amazon', 'github', 'jquery', 'bootstrap'
+            'wikipedia', 'amazon', 'github', 'jquery', 'bootstrap',
+            'instagram', 'vimeo'
         ]
         self.tag_map = {
             'a': 'href',
@@ -129,6 +130,8 @@ class Worker(threading.Thread):
         except Exception as e:
             LOGGER.warning(e)
             return  # abort if we got invalid stuff
+        finally:
+            filehandle.close()
         for element in tree.iter():
             if element.tag not in self.tag_map:
                 continue
