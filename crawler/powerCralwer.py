@@ -128,7 +128,7 @@ class HTMLProcessor(Process):
         """Build some CPU-intensive tasks to run via multiprocessing here."""
         while True:
             try:
-                result_d = self.inputQue.get(timeout=20)
+                result_d = self.inputQue.get(timeout=60)
             except:
                 self.filehandle.close()
                 break
@@ -146,7 +146,7 @@ class HTMLProcessor(Process):
 
 
 def fetch_url(url):
-    # print('Trying url: %s' % url)
+    print('Trying url: %s' % url)
     try:
         # XXX: alter user-agent?
         headers = {
@@ -156,7 +156,7 @@ def fetch_url(url):
         result = requests.get(
             url,
             allow_redirects=True,
-            timeout=(1, 3),
+            timeout=(1, 1),
             headers=headers
         )
         content = result.content
@@ -174,7 +174,7 @@ def fetch_url(url):
 def process_urls():
     while True:
         try:
-            cur_url = url_queue.get(timeout=20)
+            cur_url = url_queue.get(timeout=60)
         except:
             print('empty requester, aborting...')
             break
@@ -189,7 +189,7 @@ def process_urls():
         # print('result from url %s' % cur_url)
         if result:
             content, text, content_type = result
-            if 'text/html' in content_type:
+            if content_type and 'text/html' in content_type:
                 process_d = {
                     'url': cur_url,
                     'content': content,
@@ -205,13 +205,12 @@ def process_urls():
 if __name__ == '__main__':
     linksdone = []
 
-    # start_address = 'https://www.flafla.de/'
-    start_address = 'https://der-dritte-weg.info/'
-    starts = [
-    ]
+    start_address = 'https://www.perfact.de/'
     myhost = urlparse.urlparse(start_address).netloc
 
-    num_requester = 100
+    url_queue.put(start_address)
+
+    num_requester = 1000
     num_processors = multiprocessing.cpu_count()
 
     for i in range(num_requester):
@@ -231,11 +230,6 @@ if __name__ == '__main__':
         # my_processor.daemon = True
         my_processor.start()
         procs.append(my_processor)
-
-    url_queue.put(start_address)
-
-    for item in starts:
-        url_queue.put(item)
 
     url_queue.join()
     html_queue.join()

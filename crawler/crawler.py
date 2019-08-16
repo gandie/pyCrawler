@@ -38,6 +38,9 @@ import js2py
 # guess language of unknown content
 from guesslang import Guess
 
+# draw map from hosts
+import pygraphviz
+
 # BUILTIN
 import threading
 from queue import Queue
@@ -66,15 +69,19 @@ class Worker(threading.Thread):
     Worker thread started by Crawler.crawl() method
     Fetches urls from inputQue and puts mail addresses found to mailQue and new
     links to resultQue.
+
+    Also has some scanning abilities.
     '''
-    def __init__(self, inputQue, resultQue, mailQue, host, regex, keyword,
-                 release, checkJS=False, checkPlain=False, **kwargs):
+    def __init__(self, inputQue, resultQue, mailQue, hostQue, host, regex, keyword,
+                 release, checkJS=False, checkPlain=False, map_hosts=False,
+                 **kwargs):
 
         super(Worker, self).__init__(**kwargs)
 
         self.inputQue = inputQue
         self.resultQue = resultQue
         self.mailQue = mailQue
+        self.hostQue = hostQue
 
         self.host = host
         self.release = release
@@ -82,6 +89,7 @@ class Worker(threading.Thread):
         self.checkPlain = checkPlain
         self.keyword = keyword
         self.regex = regex
+        self.map_hosts = map_hosts
 
         self.base = None
 
@@ -96,7 +104,9 @@ class Worker(threading.Thread):
         self.bad_words = [
             'facebook', 'twitter', 'youtube', 'microsoft', 'google',
             'wikipedia', 'amazon', 'github', 'jquery', 'bootstrap',
-            'instagram', 'vimeo'
+            'instagram', 'vimeo', 'reddit', 'pinterest', 'linkedin',
+            'mozilla', 'wordpress', 'creativecommons', 'wikiquote', 'soundcloud',
+            'bandcamp', 'apple'
         ]
         self.tag_map = {
             'a': 'href',
@@ -125,26 +135,31 @@ class Worker(threading.Thread):
         '''
         # we need something that behaves like a filehandle here!
         filehandle = BytesIO(html)
+
         try:
             tree = etree.parse(filehandle, self.parser)
         except Exception as e:
             LOGGER.warning(e)
-            return  # abort if we got invalid stuff
-        finally:
             filehandle.close()
+            return  # abort if we got invalid stuff
+
+        filehandle.close()
         for element in tree.iter():
             if element.tag not in self.tag_map:
                 continue
             href = element.get(self.tag_map[element.tag])
-            # print(href, element.tag)
+
             if not href:
                 continue
+
             if href.split('.')[-1] in self.bad_endings:
                 continue
+
             for bad_word in self.bad_words:
                 if bad_word in href:
                     break
             else:  # read else like "nobreak"
+                # XXX: check following stmnt
                 if element.tag == 'base':
                     self.base = href
                 yield href
@@ -215,9 +230,12 @@ class Worker(threading.Thread):
         link_raw = link_raw.strip()
         link_raw = link_raw.replace("'", "")
         link_raw = link_raw.replace("\\", "")
+
         if 'mailto:' in link_raw:
             return
+
         host = self.extract_host(link_raw)
+
         if not host:
             # link is relative
             if self.base:
@@ -230,8 +248,20 @@ class Worker(threading.Thread):
             # link is absoulte
             if 'www' not in host and 'www' in self.host:
                 host = 'www.' + host
-            if not self.release and host != self.host:
+
+            another_host = host != self.host
+
+            if another_host and self.map_hosts:
+                # LOGGER.info('Got link to another host, from %s to %s' % (self.host, host))
+                self.hostQue.put((self.base if self.base else self.host, host))
+
+            # skip links to other hosts
+            if not self.release and another_host:
                 return
+            '''
+            else:
+                self.host = host
+            '''
             # LOGGER.info('Putting link to resultQue: %s' % link_raw)
             self.resultQue.put(link_raw)
 
@@ -261,7 +291,8 @@ class Worker(threading.Thread):
                 url,
                 allow_redirects=True,
                 timeout=REQUEST_TIMEOUT,
-                headers=headers
+                headers=headers,
+                verify=False
             )
             content = result.content
             text = result.text
@@ -293,6 +324,16 @@ class Worker(threading.Thread):
         '''
         while not self.inputQue.empty():
             url = self.inputQue.get(False)
+
+            target_host = self.extract_host(url)
+            if self.release and target_host != self.host:
+                LOGGER.info('Host changed from %s to %s' % (self.host, target_host))
+                self.host = target_host
+            '''
+            elif not self.release:  #and ((self.host not in url) or ('www.' + self.host not in url)):
+                LOGGER.info('Aborting link %s due to host change.\nHost is %s' % (url, self.host))
+                continue
+            '''
 
             request_result = self.request_url(url)
             if not request_result:
@@ -339,7 +380,7 @@ class Crawler(object):
     threads and reports results after main loop is finished'''
 
     def __init__(self, starturl, depth=5, numworkers=25, release=False,
-                 keyword=None, javascript=False, plain=False):
+                 keyword=None, javascript=False, plain=False, map_hosts=False):
 
         self.starturl = starturl
         self.depth = depth
@@ -347,16 +388,20 @@ class Crawler(object):
         self.release = release
         self.javascript = javascript
         self.plain = plain
+        self.map_hosts = map_hosts
+
         self.keyword = keyword
 
         self.inputQue = Queue()
         self.resultQue = Queue()
         self.mailQue = Queue()
+        self.hostQue = Queue()
 
         self.inputQue.put(starturl, False)
 
         self.linksdone = set()
         self.mail_adresses = set()
+        self.host_map = set()
 
         self.bytes_done = 0
 
@@ -397,12 +442,14 @@ class Crawler(object):
                     inputQue=self.inputQue,
                     resultQue=self.resultQue,
                     mailQue=self.mailQue,
+                    hostQue=self.hostQue,
                     host=self.host,
                     regex=self.email_regex,
                     keyword=self.keyword_regex,
                     release=self.release,
                     checkJS=self.javascript,
-                    checkPlain=self.plain
+                    checkPlain=self.plain,
+                    map_hosts=self.map_hosts
                 )
                 thread.daemon = True
                 thread.start()
@@ -425,6 +472,10 @@ class Crawler(object):
                     self.linksdone.add(new_url_cleaned)
                     results.append(new_url_cleaned)
 
+            while not self.hostQue.empty():
+                host_tuple = self.hostQue.get(False)
+                self.host_map.add(host_tuple)
+
             # shuffle is useful in release mode to avoid making too many
             # requests to the same host at the same time
             random.shuffle(results)
@@ -442,6 +493,16 @@ class Crawler(object):
             if self.inputQue.empty():
                 break
 
+    def draw_graph(self):
+        '''draw graph from host_map using pygraphviz
+        '''
+        graph = pygraphviz.AGraph(directed=True)
+        for from_host, to_host in self.host_map:
+            graph.add_node(from_host)
+            graph.add_node(to_host)
+            graph.add_edge(from_host, to_host)
+        graph.draw('host_map.png', format='png', prog='fdp')
+
     def report(self):
         '''report result to logger (streaming to console by default). see
         logfacility for details'''
@@ -456,6 +517,12 @@ class Crawler(object):
         print(self.inputQue.empty())
         print('-----> Links done: <-----')
         print(len(self.linksdone))
+        if self.map_hosts:
+            print('-----> Hosts mapped: <-----')
+            for from_host, to_host in self.host_map:
+                print('%s --> %s' % (from_host, to_host))
+            self.draw_graph()
+            print('-----> Hosts map drawn as host_map.png <-----')
         print('-----> Data processed [MB]: <-----')
         print(self.bytes_done * 1.0 / (10 ** 6))  # imperial bytes
         print('-----> Crawler runtime [s]: <-----')

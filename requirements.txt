@@ -27,6 +27,7 @@ protobuf
 ptyprocess
 Pygments
 pyjsparser
+pygraphviz
 pytz
 requests
 simplegeneric

@@ -75,6 +75,14 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
+        '-m',
+        '--map_hosts',
+        help='Guess language from plain text and try to evaluate (Python/JS).',
+        action='store_true',
+        default=False
+    )
+
+    parser.add_argument(
         '-k',
         '--keyword',
         help='Give optional keyword to search for',
@@ -90,6 +98,7 @@ if __name__ == '__main__':
         release=args.release,
         keyword=args.keyword,
         javascript=args.javascript,
-        plain=args.plain
+        plain=args.plain,
+        map_hosts=args.map_hosts
     )
     pycrawler.run()

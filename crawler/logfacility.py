@@ -27,11 +27,11 @@ try:
     import systemd.journal
     use_journal = True
 except ImportError:
-    # logging to file is possible if desired by calling build_logger with a path
     # warnings.warn('Unable to log to journal!')
     use_journal = False
 
 
+# logging to file is possible if desired by calling build_logger with a path
 def build_logger(path=None):
     # one logger to rule em' all
     LOGGER = logging.getLogger('pyCralwer')
