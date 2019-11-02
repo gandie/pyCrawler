@@ -26,21 +26,6 @@ import requests
 # html / xml parser
 from lxml import etree
 
-# JS parser
-from slimit import ast
-from slimit.parser import Parser
-from slimit.visitors import nodevisitor
-
-# another JS parser / interpreter
-# XXX: not (yet) used
-import js2py
-
-# guess language of unknown content
-from guesslang import Guess
-
-# draw map from hosts
-import pygraphviz
-
 # BUILTIN
 import threading
 from queue import Queue
@@ -57,9 +42,9 @@ import ast as builtin_ast
 import crawler.logfacility as logfacility
 
 # module settings
-THREAD_TIMEOUT = 20
-REQUEST_CON_TIMEOUT = 10
-REQUEST_READ_TIMEOUT = 10
+THREAD_TIMEOUT = 10
+REQUEST_CON_TIMEOUT = 2
+REQUEST_READ_TIMEOUT = 5
 REQUEST_TIMEOUT = (REQUEST_CON_TIMEOUT, REQUEST_READ_TIMEOUT)
 LOGGER = logfacility.build_logger()
 
@@ -99,15 +84,17 @@ class Worker(threading.Thread):
 
         self.bad_endings = [
             'pdf', 'jpg', 'mp4', 'zip', 'tif', 'png', 'svg', 'jpg', 'exe',
-            'ico', 'css', 'mpg'  # we're not interested in css, for now...
+            'ico', 'css', 'mpg',  # we're not interested in css, for now...
         ]
+
         self.bad_words = [
             'facebook', 'twitter', 'youtube', 'microsoft', 'google',
             'wikipedia', 'amazon', 'github', 'jquery', 'bootstrap',
             'instagram', 'vimeo', 'reddit', 'pinterest', 'linkedin',
-            'mozilla', 'wordpress', 'creativecommons', 'wikiquote', 'soundcloud',
-            'bandcamp', 'apple'
+            'mozilla', 'wordpress', 'creativecommons', 'wikiquote',
+            'soundcloud', 'bandcamp', 'apple',
         ]
+
         self.tag_map = {
             'a': 'href',
             'area': 'href',
@@ -129,10 +116,11 @@ class Worker(threading.Thread):
         return urlparse.urlparse(url).netloc
 
     def extract_links(self, html):
-        ''' CPUTASK
+        '''
         build tree object from html and yield attributes from tags defined via
         tag_map. also filters bad_words and bad_endings
         '''
+
         # we need something that behaves like a filehandle here!
         filehandle = BytesIO(html)
 
@@ -164,66 +152,6 @@ class Worker(threading.Thread):
                     self.base = href
                 yield href
 
-    def scan_js(self, url, content):
-        '''CPUTASK
-        scan javascript for url assignments (like ajax calls).'''
-        LOGGER.info('Scanning Javascript on %s' % url)
-
-        parser = Parser()
-        tree = parser.parse(content)
-        for node in nodevisitor.visit(tree):
-            if not isinstance(node, ast.Assign):  # <something>: <something>
-                continue
-            leftval = getattr(node.left, 'value', '')  # 'leftval': <something>
-            if not leftval:
-                continue
-            if 'url' not in leftval:  # 'url': <something>
-                continue
-            if isinstance(node.right, ast.String):  # 'url': 'somestring'
-                LOGGER.info(
-                    'Found interesting url in JS: %s' % node.right.value[1:-1]
-                )
-                self.check_link(url, node.right.value[2:-1])
-            for item in node.right.__dict__.values():  # string in <something>
-                # <something> may be function_call() / variable + 'somestring'
-                if isinstance(item, ast.String):
-                    LOGGER.info(
-                        'Found interesting url in JS: %s' % item.value[1:-1]
-                    )
-                    self.check_link(url, item.value[2:-1])
-
-    def scan_plain(self, url, text):
-        '''CPUTASK
-        scan text/plain content to be a known language. try to evaluate if
-        known language is found check for more urls'''
-
-        LOGGER.info('Checking plain text content from url: %s' % url)
-        langnames = Guess().probable_languages(text)
-        LOGGER.info('Guessed langnames from url: %s %s' % (url, langnames))
-        if 'Javascript' in langnames:
-            try:
-                json_from_plain = json.loads(text)
-            except Exception:  # we dont care too much
-                json_from_plain = None
-                LOGGER.error('JSON evaluation failed on : %s' % text)
-            if json_from_plain:
-                LOGGER.info('Got JSON from plain: %s' % json_from_plain)
-
-        if 'Python' in langnames:
-            try:
-                # python_fom_plain = eval(text)
-                python_fom_plain = builtin_ast.literal_eval(text)
-            except Exception:  # we dont care too much
-                LOGGER.error('Python evaluation failed on : %s' % text)
-                python_fom_plain = None
-            if python_fom_plain:
-                LOGGER.info('Got Python from plain: %s' % python_fom_plain)
-                if isinstance(python_fom_plain, dict):
-                    urls = list(self.find('url', python_fom_plain))
-                    LOGGER.info('Got urls from python dict: %s' % urls)
-                    for link in urls:
-                        self.check_link(url, link)
-
     def check_link(self, url, link_raw):
         '''checks a link to be relative or absolute and handle it according to
         settings'''
@@ -252,31 +180,14 @@ class Worker(threading.Thread):
             another_host = host != self.host
 
             if another_host and self.map_hosts:
-                # LOGGER.info('Got link to another host, from %s to %s' % (self.host, host))
                 self.hostQue.put((self.base if self.base else self.host, host))
 
             # skip links to other hosts
             if not self.release and another_host:
                 return
-            '''
-            else:
-                self.host = host
-            '''
+
             # LOGGER.info('Putting link to resultQue: %s' % link_raw)
             self.resultQue.put(link_raw)
-
-    def find(self, key, dictionary):
-        '''check nested dictionary for key, yield values. stolen from net'''
-        for k, v in dictionary.items():
-            if k == key:
-                yield v
-            elif isinstance(v, dict):
-                for result in self.find(key, v):
-                    yield result
-            elif isinstance(v, list):
-                for d in v:
-                    for result in self.find(key, d):
-                        yield result
 
     def request_url(self, url):
         '''use requests to call given url. returns raw bytes content, text and
@@ -327,15 +238,13 @@ class Worker(threading.Thread):
 
             target_host = self.extract_host(url)
             if self.release and target_host != self.host:
-                LOGGER.info('Host changed from %s to %s' % (self.host, target_host))
+                LOGGER.info(
+                    'Host changed from %s to %s' % (self.host, target_host)
+                )
                 self.host = target_host
-            '''
-            elif not self.release:  #and ((self.host not in url) or ('www.' + self.host not in url)):
-                LOGGER.info('Aborting link %s due to host change.\nHost is %s' % (url, self.host))
-                continue
-            '''
 
             request_result = self.request_url(url)
+
             if not request_result:
                 continue
             content, text, content_type = request_result
@@ -353,10 +262,12 @@ class Worker(threading.Thread):
             is_plain = 'plain' in content_type
 
             if is_plain and self.checkPlain:
-                self.scan_plain(url, text)
+                import crawler.guess as scan_module
+                scan_module.scan_plain(self, url, text)
 
             if is_js and self.checkJS:
-                self.scan_js(url, text)
+                import crawler.guess as scan_module
+                scan_module.scan_js(self, url, text)
 
             if not is_html:
                 continue
@@ -493,16 +404,6 @@ class Crawler(object):
             if self.inputQue.empty():
                 break
 
-    def draw_graph(self):
-        '''draw graph from host_map using pygraphviz
-        '''
-        graph = pygraphviz.AGraph(directed=True)
-        for from_host, to_host in self.host_map:
-            graph.add_node(from_host)
-            graph.add_node(to_host)
-            graph.add_edge(from_host, to_host)
-        graph.draw('host_map.png', format='png', prog='fdp')
-
     def report(self):
         '''report result to logger (streaming to console by default). see
         logfacility for details'''
@@ -518,11 +419,10 @@ class Crawler(object):
         print('-----> Links done: <-----')
         print(len(self.linksdone))
         if self.map_hosts:
-            print('-----> Hosts mapped: <-----')
+            import crawler.draw as draw_module
             for from_host, to_host in self.host_map:
                 print('%s --> %s' % (from_host, to_host))
-            self.draw_graph()
-            print('-----> Hosts map drawn as host_map.png <-----')
+            draw_module.draw_graph(self.host_map)
         print('-----> Data processed [MB]: <-----')
         print(self.bytes_done * 1.0 / (10 ** 6))  # imperial bytes
         print('-----> Crawler runtime [s]: <-----')

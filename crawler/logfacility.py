@@ -31,6 +31,10 @@ except ImportError:
     use_journal = False
 
 
+def get_logger():
+    return logging.getLogger('pyCralwer')
+
+
 # logging to file is possible if desired by calling build_logger with a path
 def build_logger(path=None):
     # one logger to rule em' all
