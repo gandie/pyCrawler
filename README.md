@@ -4,13 +4,25 @@ A simple Python3 page crawler to extract mail addresses.
 Written as pythonic solution of a programming excercise,
 intended for training purposes.
 
+Also contains some experimental features like evaluating JavaScript to find
+more URLs and drawing a map from visited hosts.
+
 # Installation
 
 This python package can be installed (optionally, but strongly recommended into a <a href="http://docs.python-guide.org/en/latest/dev/virtualenvs/#lower-level-virtualenv">virtualenv</a>)
-after requirements have been installed:
+after requirements have been installed.
+
+Basic installation (mail extraction only):
 
 ```bash
 pip install -r requirements.txt
+python setup.py install
+```
+
+Full installation (experimental features):
+
+```bash
+pip install -r requirements_full.txt
 python setup.py install
 ```
 
