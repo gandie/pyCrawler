@@ -20,7 +20,6 @@ numpy
 parso
 pexpect
 pickleshare
-pkg-resources
 ply
 prompt-toolkit
 protobuf

@@ -35,8 +35,7 @@ import urllib.parse as urlparse
 import random
 from io import BytesIO
 import time
-import json
-import ast as builtin_ast
+import urllib3
 
 # CUSTOM
 import crawler.logfacility as logfacility
@@ -46,7 +45,9 @@ THREAD_TIMEOUT = 10
 REQUEST_CON_TIMEOUT = 2
 REQUEST_READ_TIMEOUT = 5
 REQUEST_TIMEOUT = (REQUEST_CON_TIMEOUT, REQUEST_READ_TIMEOUT)
+
 LOGGER = logfacility.build_logger()
+urllib3.disable_warnings()
 
 
 class Worker(threading.Thread):
@@ -79,8 +80,6 @@ class Worker(threading.Thread):
         self.base = None
 
         self.bytes_done = 0
-
-        self.parser = etree.HTMLParser()
 
         self.bad_endings = [
             'pdf', 'jpg', 'mp4', 'zip', 'tif', 'png', 'svg', 'jpg', 'exe',
@@ -121,11 +120,13 @@ class Worker(threading.Thread):
         tag_map. also filters bad_words and bad_endings
         '''
 
+        parser = etree.HTMLParser()
+
         # we need something that behaves like a filehandle here!
         filehandle = BytesIO(html)
 
         try:
-            tree = etree.parse(filehandle, self.parser)
+            tree = etree.parse(filehandle, parser)
         except Exception as e:
             LOGGER.warning(e)
             filehandle.close()
@@ -291,7 +292,10 @@ class Crawler(object):
     threads and reports results after main loop is finished'''
 
     def __init__(self, starturl, depth=5, numworkers=25, release=False,
-                 keyword=None, javascript=False, plain=False, map_hosts=False):
+                 keyword=None, javascript=False, plain=False, map_hosts=False,
+                 loglevel=30):
+
+        LOGGER.setLevel(loglevel)
 
         self.starturl = starturl
         self.depth = depth
@@ -405,10 +409,14 @@ class Crawler(object):
                 break
 
     def report(self):
-        '''report result to logger (streaming to console by default). see
-        logfacility for details'''
+        '''
+        report result tp console
+        '''
         print('-----> CRAWLER FINISHED <-----')
         print('-----> REPORT FOLLOWS <-----')
+        print('-----> Links done: <-----')
+        for link in self.linksdone:
+            print(link)
         print('-----> Got mails: <-----')
         for mail in self.mail_adresses:
             print(mail)
