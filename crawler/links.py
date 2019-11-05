@@ -24,6 +24,10 @@ from lxml import etree
 from io import StringIO
 import urllib.parse as urlparse
 
+# CUSTOM
+import crawler.logfacility as logfacility
+
+LOGGER = logfacility.get_logger()
 
 bad_endings = [
     'pdf', 'jpg', 'mp4', 'zip', 'tif', 'png', 'svg', 'jpg', 'exe',

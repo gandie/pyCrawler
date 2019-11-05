@@ -82,114 +82,10 @@ class Worker(threading.Thread):
 
         self.bytes_done = 0
 
-        self.bad_endings = [
-            'pdf', 'jpg', 'mp4', 'zip', 'tif', 'png', 'svg', 'jpg', 'exe',
-            'ico', 'css', 'mpg',  # we're not interested in css, for now...
-        ]
-
-        self.bad_words = [
-            'facebook', 'twitter', 'youtube', 'microsoft', 'google',
-            'wikipedia', 'amazon', 'github', 'jquery', 'bootstrap',
-            'instagram', 'vimeo', 'reddit', 'pinterest', 'linkedin',
-            'mozilla', 'wordpress', 'creativecommons', 'wikiquote',
-            'soundcloud', 'bandcamp', 'apple',
-        ]
-
-        self.tag_map = {
-            'a': 'href',
-            'area': 'href',
-            'base': 'href',
-            'link': 'href',
-            'frame': 'src',
-            'iframe': 'src',
-            'base': 'href,',  # important to avoid loops on relative links
-        }
-
         if self.checkJS:
-            self.tag_map.update({
+            links.tag_map.update({
                 'script': 'src',
             })
-
-    def extract_host(self, url):
-        if self.host in url:
-            return self.host
-        return urlparse.urlparse(url).netloc
-
-    def extract_links(self, html):
-        '''
-        build tree object from html and yield attributes from tags defined via
-        tag_map. also filters bad_words and bad_endings
-        '''
-
-        parser = etree.HTMLParser()
-
-        # we need something that behaves like a filehandle here!
-        filehandle = BytesIO(html)
-
-        try:
-            tree = etree.parse(filehandle, parser)
-        except Exception as e:
-            LOGGER.warning(e)
-            filehandle.close()
-            return  # abort if we got invalid stuff
-
-        filehandle.close()
-        for element in tree.iter():
-            if element.tag not in self.tag_map:
-                continue
-            href = element.get(self.tag_map[element.tag])
-
-            if not href:
-                continue
-
-            if href.split('.')[-1] in self.bad_endings:
-                continue
-
-            for bad_word in self.bad_words:
-                if bad_word in href:
-                    break
-            else:  # read else like "nobreak"
-                # XXX: check following stmnt
-                if element.tag == 'base':
-                    self.base = href
-                yield href
-
-    def check_link(self, url, link_raw):
-        '''checks a link to be relative or absolute and handle it according to
-        settings'''
-        link_raw = link_raw.strip()
-        link_raw = link_raw.replace("'", "")
-        link_raw = link_raw.replace("\\", "")
-
-        if 'mailto:' in link_raw:
-            return
-
-        host = self.extract_host(link_raw)
-
-        if not host:
-            # link is relative
-            if self.base:
-                new_link = urlparse.urljoin(self.base, link_raw)
-            else:
-                new_link = urlparse.urljoin(url, link_raw)
-            # LOGGER.info('Putting link to resultQue: %s' % new_link)
-            self.resultQue.put(new_link)
-        else:
-            # link is absoulte
-            if 'www' not in host and 'www' in self.host:
-                host = 'www.' + host
-
-            another_host = host != self.host
-
-            if another_host and self.map_hosts:
-                self.hostQue.put((self.base if self.base else self.host, host))
-
-            # skip links to other hosts
-            if not self.release and another_host:
-                return
-
-            # LOGGER.info('Putting link to resultQue: %s' % link_raw)
-            self.resultQue.put(link_raw)
 
     def request_url(self, url):
         '''use requests to call given url. returns raw bytes content, text and
@@ -238,7 +134,7 @@ class Worker(threading.Thread):
         while not self.inputQue.empty():
             url = self.inputQue.get(False)
 
-            target_host = self.extract_host(url)
+            target_host = links.extract_host(url)
             if self.release and target_host != self.host:
                 LOGGER.info(
                     'Host changed from %s to %s' % (self.host, target_host)
