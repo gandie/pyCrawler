@@ -39,6 +39,7 @@ import urllib3
 
 # CUSTOM
 import crawler.logfacility as logfacility
+import crawler.links as links
 
 # module settings
 THREAD_TIMEOUT = 10
@@ -280,10 +281,15 @@ class Worker(threading.Thread):
 
             self.scan_mails(url, text)
 
-            for link_raw in self.extract_links(content):
-                self.check_link(url, link_raw)
-
-            self.base = None
+            new_links = links.extract_links(text, url, self.release)
+            for link_d in new_links:
+                if not link_d:
+                    continue
+                if (self.release and link_d['new_host']) or \
+                   (not self.release and link_d['new_host'] is None):
+                    self.resultQue.put(link_d['url'])
+                if link_d['new_host'] and self.map_hosts:
+                    self.hostQue.put((self.host, link_d['new_host']))
             LOGGER.info('URL done: %s' % url)
 
 
