@@ -117,7 +117,7 @@ class Worker(threading.Thread):
     def scan_mails(self, url, text):
         '''use regex to check given text for mails, put mails found to Queue'''
         for mail in re.findall(self.regex, text):
-            if mail.split('.')[-1] in self.bad_endings:
+            if mail.split('.')[-1] in links.bad_endings:
                 continue
             # TODO: queue must also contain url mail was found on!
             self.mailQue.put(mail, False)
